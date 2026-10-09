@@ -1,6 +1,34 @@
 // ============================================================================
-// Author: abhishek
-// Updated on : 13-07-26
+// Copyright (c) 2013 by Terasic Technologies Inc.
+// ============================================================================
+//
+// Permission:
+//
+//   Terasic grants permission to use and modify this code for use
+//   in synthesis for all Terasic Development Boards and Altera Development 
+//   Kits made by Terasic.  Other use of this code, including the selling 
+//   ,duplication, or modification of any portion is strictly prohibited.
+//
+// Disclaimer:
+//
+//   This VHDL/Verilog or C/C++ source code is intended as a design reference
+//   which illustrates how these types of functions can be implemented.
+//   It is the user's responsibility to verify their design for
+//   consistency and functionality through the use of formal
+//   verification methods.  Terasic provides no warranty regarding the use 
+//   or functionality of this code.
+//
+// ============================================================================
+//           
+//  Terasic Technologies Inc
+//  9F., No.176, Sec.2, Gongdao 5th Rd, East Dist, Hsinchu City, 30070. Taiwan
+//  
+//  
+//                     web: http://www.terasic.com/  
+//                     email: support@terasic.com
+//
+// ============================================================================
+//Date:  Mon Jun 17 20:35:29 2013
 // ============================================================================
 
 `define ENABLE_HPS
@@ -201,17 +229,34 @@ wire            fpga_clk_50;
 wire [31:0] hps_to_fpga_data;
 wire [31:0] fpga_to_hps_data;
 // connection of internal logics
-assign LEDR[9:1]        = fpga_led_internal;
+// LEDR[9:1] = Battery SoC bar graph (each LED = 10%)
+assign LEDR[9] = (soc_data >= 90);
+assign LEDR[8] = (soc_data >= 80);
+assign LEDR[7] = (soc_data >= 70);
+assign LEDR[6] = (soc_data >= 60);
+assign LEDR[5] = (soc_data >= 50);
+assign LEDR[4] = (soc_data >= 40);
+assign LEDR[3] = (soc_data >= 30);
+assign LEDR[2] = (soc_data >= 20);
+assign LEDR[1] = (soc_data >= 10);
 assign stm_hw_events    = {{4{1'b0}}, SW, fpga_led_internal, fpga_debounced_buttons};
 assign fpga_clk_50      = CLOCK_50;
+
+wire [31:0] soc_data;
+wire        fault_data;
+
+wire        LT24_WR_n, LT24_RD_n, LT24_CS_n, LT24_RS, LT24_RST_n, LT24_LCD_ON;
+wire [15:0] LT24_D;
+wire [31:0] soc_data_reg;
+reg  [1:0]  mode_reg;
 
 powertrain_sim powertrain (
     .clk         (CLOCK_50),
     .rst_n       (hps_fpga_reset_n),
     .throttle_in (hps_to_fpga_data),
     .rpm_out     (fpga_to_hps_data),
-    .soc_out     (),
-    .fault_out   ()
+    .soc_out     (soc_data),
+    .fault_out   (fault_data)
 );
 
 hex_driver hex_display (
@@ -224,9 +269,38 @@ hex_driver hex_display (
     .HEX5 (HEX5)
 );
 
+
+
 //=======================================================
 //  Structural coding
 //=======================================================
+lt24_dashboard dashboard (
+    .clk        (CLOCK_50),
+    .rst_n      (hps_fpga_reset_n),
+    .rpm        (fpga_to_hps_data),
+    .soc        (soc_data),
+    .mode       (mode_reg),
+    .fault      (fault_data),
+    .LT24Wr_n   (LT24_WR_n),
+    .LT24Rd_n   (LT24_RD_n),
+    .LT24CS_n   (LT24_CS_n),
+    .LT24RS     (LT24_RS),
+    .LT24Reset_n(LT24_RST_n),
+    .LT24Data   (LT24_D),
+    .LT24LCDOn  (LT24_LCD_ON)
+);
+
+always @(posedge CLOCK_50 or negedge hps_fpga_reset_n) begin
+    if (!hps_fpga_reset_n)
+        mode_reg <= 2'd1; // default NORMAL
+    else begin
+        if (!fpga_debounced_buttons[0])      mode_reg <= 2'd0; // ECO
+        else if (!fpga_debounced_buttons[1]) mode_reg <= 2'd1; // NORMAL
+        else if (!fpga_debounced_buttons[2]) mode_reg <= 2'd2; // SPORT
+        else if (!fpga_debounced_buttons[3]) mode_reg <= 2'd3; // BRAKE
+    end
+end
+
 soc_system u0 (      
     .clk_clk                               (CLOCK_50),                             //                clk.clk
     .reset_reset_n                         (1'b1),                                 //                reset.reset_n
@@ -393,6 +467,32 @@ begin
         counter <= counter + 1'b1;
 end
 
-assign LEDR[0] = led_level;
+// LED Battery SoC Indicator - LEDR[1:9] shows battery level
+// LEDR[0] keeps the heartbeat blink
+assign LEDR[0] = fault_data;
+
+// LT24 GPIO0 Pin Assignments
+assign GPIO_0[8]  = LT24_D[0];
+assign GPIO_0[7]  = LT24_D[1];
+assign GPIO_0[6]  = LT24_D[2];
+assign GPIO_0[5]  = LT24_D[3];
+assign GPIO_0[13] = LT24_D[4];
+assign GPIO_0[14] = LT24_D[5];
+assign GPIO_0[15] = LT24_D[6];
+assign GPIO_0[16] = LT24_D[7];
+assign GPIO_0[17] = LT24_D[8];
+assign GPIO_0[18] = LT24_D[9];
+assign GPIO_0[19] = LT24_D[10];
+assign GPIO_0[20] = LT24_D[11];
+assign GPIO_0[21] = LT24_D[12];
+assign GPIO_0[22] = LT24_D[13];
+assign GPIO_0[23] = LT24_D[14];
+assign GPIO_0[24] = LT24_D[15];
+assign GPIO_0[10] = LT24_RD_n;
+assign GPIO_0[11] = LT24_WR_n;
+assign GPIO_0[12] = LT24_RS;
+assign GPIO_0[25] = LT24_CS_n;
+assign GPIO_0[35] = LT24_RST_n;
+
 
 endmodule
